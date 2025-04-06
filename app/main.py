@@ -3,13 +3,18 @@ from fastapi import FastAPI, Form, UploadFile
 from app.ingestion import process_document
 from app.llm import generate_answer
 from app.retriever import get_relevant_chunks
+from app.vectorstore import VectorStore
 
 app = FastAPI()
+
+vectorstore = VectorStore()
 
 
 @app.post("/upload")
 async def upload_document(file: UploadFile):
-    return process_document(file)
+    doc_data = process_document(file)
+    vectorstore.embed_and_store_chunks(doc_data["chunks"])
+    return {"num_chunks": doc_data["num_chunks"], "doc_id": doc_data["doc_id"]}
 
 
 @app.post("/ask")
