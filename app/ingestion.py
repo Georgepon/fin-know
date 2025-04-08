@@ -1,21 +1,30 @@
+from pathlib import Path
+from typing import Union
 from uuid import uuid4
 
 import pymupdf
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 
-def process_document(file):
-    """_summary_
+def process_document(file: Union[str, Path, object]) -> dict:
+    """
+    Process a PDF document from file path or uploaded file-like object.
 
     Args:
-        file (_type_): _description_
+        file (str | Path | UploadedFile): Path to PDF or file-like object.
 
     Returns:
-        _type_: _description_
+        dict: Contains metadata and list of chunk dicts.
     """
-    # Load and read the PDF
     doc_id = str(uuid4())
-    pdf = pymupdf.open(stream=file.file.read(), filetype="pdf")
+
+    # Determine input type
+    if isinstance(file, (str, Path)):
+        pdf = pymupdf.open(str(file))  # Load from path
+    else:
+        pdf = pymupdf.open(
+            stream=file.file.read(), filetype="pdf"
+        )  # Streamed file upload
 
     # Extract text from all pages
     all_text = ""
