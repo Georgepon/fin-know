@@ -22,9 +22,12 @@ def process_document(file: Union[str, Path, object]) -> dict:
     if isinstance(file, (str, Path)):
         pdf = pymupdf.open(str(file))  # Load from path
     else:
-        pdf = pymupdf.open(
-            stream=file.file.read(), filetype="pdf"
-        )  # Streamed file upload
+        read_fn = getattr(file, "read", None)
+        if callable(read_fn):
+            # streamlit case, remove if only using FastAPI
+            pdf = pymupdf.open(stream=file.read(), filetype="pdf")
+        else:
+            pdf = pymupdf.open(stream=file.file.read(), filetype="pdf")
 
     # Extract text from all pages
     all_text = ""

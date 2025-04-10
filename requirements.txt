@@ -4,6 +4,7 @@ openai
 langchain
 faiss-cpu
 PyMuPDF
+python-dotenv
 
 sentence-transformers==2.4.0
 transformers==4.35.2

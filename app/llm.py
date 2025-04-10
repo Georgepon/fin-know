@@ -1,49 +1,46 @@
-# app/llm.py
+import os
 
-from typing import List
+from dotenv import load_dotenv
+from openai import OpenAI
 
-from llama_cpp import Llama
+load_dotenv()
 
-# Load model once when this module is imported
-llm = Llama(
-    model_path="models/mistral/mistral-7b-instruct-v0.1.Q4_K_M.gguf",
-    n_ctx=4096,
-    n_threads=8,
-    verbose=True,
+# Initialize OpenAI client
+client = OpenAI(
+    api_key=os.getenv("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1"
 )
 
 
-def generate_answer(question: str, chunks: List[dict]) -> str:
+def generate_answer(
+    question: str,
+    context: str,
+    model: str = "llama3-8b-8192",
+    max_tokens: int = 512,
+) -> str:
     """
-    Generate an answer using the local LLM based on retrieved document chunks.
+    Generate an answer using Groq-hosted LLM based on a question and retrieved document context.
 
     Args:
-        question (str): The user's input question.
-        chunks (List[dict]): List of retrieved document chunks (each has "text").
+        question (str): The user question.
+        context (str): Concatenated relevant chunks.
+        model (str): Groq model to use.
+        max_tokens (int): Max tokens to generate.
 
     Returns:
-        str: Generated answer.
+        str: The generated answer.
     """
-    # Combine context into a single string
-    context = "\n\n".join(chunk["text"] for chunk in chunks)
-
-    # Build the full prompt
-    prompt = f"""
-        You are a helpful assistant with access to financial documents. Use the context below to answer the user's question. 
-        If the answer is not in the context, say "The answer is not found in the document."
-
-        Context:
-        {context}
-
-        Question: {question}
-        Answer:
-    """.strip()
-
-    # Run the model
-    print("⚙️ Sending prompt to LLM...")
-
-    response = llm(prompt, max_tokens=512, stop=["Question:", "Context:"])
-
-    print("✅ Response received from LLM")
-
-    return response["choices"][0]["text"].strip()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that answers questions using the provided document context. Only use the context below to answer the question.",
+            },
+            {
+                "role": "user",
+                "content": f"Context:\n{context}\n\nQuestion:\n{question}",
+            },
+        ],
+        max_tokens=max_tokens,
+    )
+    return response.choices[0].message.content
