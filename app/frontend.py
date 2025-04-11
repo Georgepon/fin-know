@@ -2,7 +2,7 @@ import streamlit as st
 from ingestion import process_document
 from llm import generate_answer
 from retriever import get_relevant_chunks
-from vectorstore import VectorStore
+from vectorstore import QdrantVectorStore
 
 if "doc_data" not in st.session_state:
     st.session_state.doc_data = None
@@ -23,7 +23,7 @@ if uploaded_file is not None:
             doc_data = process_document(uploaded_file)
             chunks = doc_data["chunks"]
 
-            vectorstore = VectorStore()
+            vectorstore = QdrantVectorStore()
             vectorstore.embed_and_store_chunks(chunks)
 
             # Store in session
