@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 from typing import Union
 from uuid import uuid4
@@ -9,25 +10,42 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 def process_document(file: Union[str, Path, object]) -> dict:
     """
     Process a PDF document from file path or uploaded file-like object.
+    Calculates a hash of the file content.
 
     Args:
         file (str | Path | UploadedFile): Path to PDF or file-like object.
 
     Returns:
-        dict: Contains metadata and list of chunk dicts.
+        dict: Contains metadata, list of chunk dicts, and file_hash.
     """
     doc_id = str(uuid4())
+    file_content_bytes = None
+    file_hash = None
 
-    # Determine input type
+    # Determine input type and read bytes for hashing
     if isinstance(file, (str, Path)):
-        pdf = pymupdf.open(str(file))  # Load from path
-    else:
-        read_fn = getattr(file, "read", None)
-        if callable(read_fn):
-            # streamlit case, remove if only using FastAPI
-            pdf = pymupdf.open(stream=file.read(), filetype="pdf")
+        file_path = Path(file)
+        file_content_bytes = file_path.read_bytes()
+        pdf = pymupdf.open(str(file_path))  # Load from path
+    else:  # Handle UploadedFile (Streamlit/FastAPI)
+        # Check for Streamlit UploadedFile
+        if hasattr(file, "getvalue") and callable(file.getvalue):
+            file_content_bytes = file.getvalue()
+            # Reset pointer for pymupdf if needed
+            file.seek(0)
+            pdf = pymupdf.open(stream=file_content_bytes, filetype="pdf")
+        # Check for FastAPI UploadFile
+        elif hasattr(file, "file") and hasattr(file.file, "read"):
+            file_content_bytes = file.file.read()
+            # Reset pointer for pymupdf
+            file.file.seek(0)
+            pdf = pymupdf.open(stream=file_content_bytes, filetype="pdf")
         else:
-            pdf = pymupdf.open(stream=file.file.read(), filetype="pdf")
+            raise TypeError("Unsupported file input type")
+
+    # Calculate hash
+    if file_content_bytes:
+        file_hash = hashlib.sha256(file_content_bytes).hexdigest()
 
     # Extract text from all pages
     all_text = ""
@@ -52,4 +70,9 @@ def process_document(file: Union[str, Path, object]) -> dict:
             {"chunk_id": f"{doc_id}_{i}", "text": chunk, "doc_id": doc_id}
         )
 
-    return {"num_chunks": len(chunked_docs), "doc_id": doc_id, "chunks": chunked_docs}
+    return {
+        "num_chunks": len(chunked_docs),
+        "doc_id": doc_id,
+        "chunks": chunked_docs,
+        "file_hash": file_hash,
+    }

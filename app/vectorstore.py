@@ -1,121 +1,201 @@
+import math
 import os
+import time
 from typing import Any, Dict, List
 from uuid import uuid4
 
-import requests
 from dotenv import load_dotenv
-from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, PointStruct, VectorParams
+from openai import OpenAI
+from qdrant_client import QdrantClient, models
 
 load_dotenv()
 
 
 class QdrantVectorStore:
     """
-    Handles vector storage and retrieval using Qdrant Cloud.
-
-    This class initializes a connection to a Qdrant collection, allows you to store embeddings with metadata,
-    and search for the most relevant vectors given a query.
+    Handles vector storage and retrieval using Qdrant Cloud (Synchronous).
     """
 
     def __init__(self) -> None:
         """
-        Initializes the Qdrant client using environment variables and creates the collection if it doesn't exist.
-        Environment Variables Required:
-            - QDRANT_URL: URL of the Qdrant Cloud instance
-            - QDRANT_API_KEY: API key for authentication
-            - QDRANT_COLLECTION: Name of the collection to use
+        Initializes the synchronous Qdrant and OpenAI clients.
+        Initializes the collection directly.
         """
         self.qdrant_url = os.getenv("QDRANT_URL")
         self.qdrant_api_key = os.getenv("QDRANT_API_KEY")
         self.collection_name = os.getenv("QDRANT_COLLECTION")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
 
-        self.client = QdrantClient(url=self.qdrant_url, api_key=self.qdrant_api_key)
+        if not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY environment variable not set.")
+        if not self.qdrant_url:
+            raise ValueError("QDRANT_URL environment variable not set.")
 
+        # Initialize Sync Qdrant Client
+        self.client = QdrantClient(
+            url=self.qdrant_url, api_key=self.qdrant_api_key, timeout=30.0
+        )
+
+        # Initialize Sync OpenAI Client
+        self.openai_client = OpenAI(api_key=self.openai_api_key)
+
+        # Initialize collection synchronously
         self._init_collection()
 
     def _init_collection(self) -> None:
         """
-        Checks if the specified collection exists in Qdrant. If not, it creates one with cosine distance
-        and 384-dimensional vectors.
+        (Sync) Checks if the specified collection exists in Qdrant. If not, creates one.
         """
-        if self.collection_name not in self.client.get_collections().collections:
-            self.client.recreate_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+        print("Initializing Qdrant collection (sync)...")
+        try:
+            collections_response = self.client.get_collections()
+            collection_names = [col.name for col in collections_response.collections]
+
+            if self.collection_name not in collection_names:
+                print(f"Creating Qdrant collection: {self.collection_name}")
+                self.client.recreate_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=models.VectorParams(
+                        size=1536, distance=models.Distance.COSINE
+                    ),
+                )
+                print(f"Collection {self.collection_name} created.")
+            else:
+                print(f"Collection {self.collection_name} already exists.")
+                pass
+
+        except Exception as e:
+            print(f"Error initializing Qdrant collection (sync): {e}")
+            raise
+
+    def embed_texts_openai(self, texts: List[str]) -> List[List[float]]:
+        """
+        (Sync) Uses OpenAI's API to generate embeddings.
+        """
+        if not texts:
+            return []
+        try:
+            response = self.openai_client.embeddings.create(
+                model="text-embedding-3-small", input=texts
             )
-
-    def embed_texts_groq(self, texts: List[str]) -> List[List[float]]:
-        """
-        Sends a list of texts to Groq's hosted embedding API and returns their vector representations.
-
-        Args:
-            texts (List[str]): List of strings to embed.
-
-        Returns:
-            List[List[float]]: List of embeddings corresponding to each input string.
-        """
-        response = requests.post(
-            "https://api.groq.com/openai/v1/embeddings",
-            headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"},
-            json={"model": "nomic-ai/nomic-embed-text-v1", "input": texts},
-        )
-        response.raise_for_status()
-        return [d["embedding"] for d in response.json()["data"]]
+            return [d.embedding for d in response.data]
+        except Exception as e:
+            print(f"Error getting OpenAI embeddings (sync) for {len(texts)} texts: {e}")
+            raise
 
     def upsert(
         self, embeddings: List[List[float]], metadata_list: List[Dict[str, Any]]
     ) -> None:
         """
-        Stores or updates vectors and their associated metadata in the Qdrant collection.
-
-        Args:
-            embeddings (List[List[float]]): List of vector embeddings to store.
-            metadata_list (List[Dict[str, Any]]): List of metadata dictionaries corresponding to each embedding.
+        (Sync) Stores vectors and metadata. Generates UUID for each point ID.
         """
+        if not embeddings:
+            print("No embeddings provided to upsert.")
+            return
+
         points = [
-            PointStruct(id=str(uuid4()), vector=embedding, payload=metadata)
+            models.PointStruct(
+                id=str(uuid4()),
+                vector=embedding,
+                payload=metadata,
+            )
             for embedding, metadata in zip(embeddings, metadata_list)
         ]
-        self.client.upsert(collection_name=self.collection_name, points=points)
+        try:
+            self.client.upsert(
+                collection_name=self.collection_name, points=points, wait=True
+            )
+        except Exception as e:
+            print(f"Error upserting {len(points)} points to Qdrant (sync): {e}")
+            raise
 
     def search(self, query_vector: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
         """
-        Searches the Qdrant collection for the most similar vectors to a given query vector.
-
-        Args:
-            query_vector (List[float]): The query embedding vector.
-            top_k (int, optional): The number of top matches to return. Defaults to 5.
-
-        Returns:
-            List[Dict[str, Any]]: List of metadata payloads from the top-k most similar vectors.
+        (Sync) Searches the Qdrant collection.
         """
-        results = self.client.search(
-            collection_name=self.collection_name, query_vector=query_vector, limit=top_k
+        try:
+            results = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                limit=top_k,
+            )
+            return [hit.payload for hit in results]
+        except Exception as e:
+            print(f"Error searching Qdrant (sync): {e}")
+            raise
+
+    def embed_and_store_chunks(
+        self, chunks: List[Dict[str, str]], batch_size: int = 128, progress_bar=None
+    ) -> None:
+        """
+        (Sync) Embeds and stores chunks sequentially in batches.
+        Updates an optional Streamlit progress bar if provided.
+        """
+        if not chunks:
+            print("No chunks provided to embed and store.")
+            return
+
+        num_chunks = len(chunks)
+        num_batches = math.ceil(num_chunks / batch_size)
+        print(
+            f"Starting SYNC embedding and storage for {num_chunks} chunks in {num_batches} batches (size: {batch_size})..."
         )
-        return [hit.payload for hit in results]
 
-    def embed_and_store_chunks(self, chunks: List[Dict[str, str]]) -> None:
-        """
-        Embeds and stores a list of chunk dictionaries into Qdrant.
+        total_processed_chunks = 0
+        start_time = time.time()
+        for i in range(num_batches):
+            current_batch_num = i + 1
+            start_index = i * batch_size
+            end_index = min(current_batch_num * batch_size, num_chunks)
+            batch_chunks_metadata = chunks[start_index:end_index]
+            batch_texts = [chunk["text"] for chunk in batch_chunks_metadata]
 
-        Args:
-            chunks (List[Dict[str, str]]): List of chunks where each chunk is a dict with keys like 'text' and 'chunk_id'.
-        """
-        texts = [chunk["text"] for chunk in chunks]
-        embeddings = self.embed_texts_groq(texts)
-        self.upsert(embeddings, chunks)
+            try:
+                embeddings = self.embed_texts_openai(batch_texts)
+                if embeddings:
+                    self.upsert(embeddings, batch_chunks_metadata)
+                    total_processed_chunks += len(batch_texts)
+                else:
+                    print(
+                        f"Warning: Embedding returned empty for batch {current_batch_num}. Skipping upsert."
+                    )
+
+                # Update progress bar if provided
+                if progress_bar:
+                    progress_percentage = min(1.0, current_batch_num / num_batches)
+                    progress_bar.progress(
+                        progress_percentage,
+                        text=f"Embedding batch {current_batch_num}/{num_batches}",
+                    )
+
+            except Exception as e:
+                print(f"Error processing batch {current_batch_num}/{num_batches}: {e}")
+                # Update progress bar to show error maybe?
+                if progress_bar:
+                    progress_bar.progress(
+                        1.0, text=f"Error on batch {current_batch_num}! Check logs."
+                    )
+                # Decide if processing should stop on error
+                break  # Stop processing further batches on error
+
+        end_time = time.time()
+        print("-" * 30)
+        print(f"SYNC processing complete in {end_time - start_time:.2f} seconds.")
+        print(
+            f"Successfully processed {total_processed_chunks}/{num_chunks} chunks across {num_batches} batches."
+        )
+        print("-" * 30)
+
+        # Ensure progress bar reaches 100% if it exists and no error occurred mid-way
+        if progress_bar and total_processed_chunks == num_chunks:
+            progress_bar.progress(1.0, text="Embedding complete!")
 
     def embed_and_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
-        Embeds a text query and retrieves the top-k most relevant chunks from the vector database.
-
-        Args:
-            query (str): The question or search input.
-            top_k (int): Number of top chunks to return.
-
-        Returns:
-            List[Dict[str, Any]]: Metadata of the top matched chunks.
+        (Sync) Embeds a query and searches.
         """
-        query_vector = self.embed_texts_groq([query])[0]
-        return self.search(query_vector, top_k=top_k)
+        query_vector = self.embed_texts_openai([query])
+        if not query_vector:
+            print("Warning: Failed to embed query.")
+            return []
+        return self.search(query_vector[0], top_k=top_k)
