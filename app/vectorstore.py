@@ -109,14 +109,34 @@ class QdrantVectorStore:
             print(f"Error upserting {len(points)} points to Qdrant (sync): {e}")
             raise
 
-    def search(self, query_vector: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(
+        self,
+        query_vector: List[float],
+        top_k: int = 5,
+        filter_doc_ids: List[str] | None = None,
+    ) -> List[Dict[str, Any]]:
         """
         (Sync) Searches the Qdrant collection.
+        Optionally filters by a list of document IDs.
         """
+        search_filter = None
+        if filter_doc_ids:
+            print(f"Applying search filter for {len(filter_doc_ids)} doc IDs.")
+            # Create a filter that matches if doc_id is in the provided list
+            search_filter = models.Filter(
+                should=[
+                    models.FieldCondition(
+                        key="doc_id", match=models.MatchValue(value=doc_id)
+                    )
+                    for doc_id in filter_doc_ids
+                ]
+            )
+
         try:
             results = self.client.search(
                 collection_name=self.collection_name,
                 query_vector=query_vector,
+                query_filter=search_filter,  # Pass the filter here
                 limit=top_k,
             )
             return [hit.payload for hit in results]
@@ -190,12 +210,103 @@ class QdrantVectorStore:
         if progress_bar and total_processed_chunks == num_chunks:
             progress_bar.progress(1.0, text="Embedding complete!")
 
-    def embed_and_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def embed_and_search(
+        self, query: str, top_k: int = 10, filter_doc_ids: List[str] | None = None
+    ) -> List[Dict[str, Any]]:
         """
-        (Sync) Embeds a query and searches.
+        (Sync) Embeds a query and searches, optionally filtering by document IDs.
         """
         query_vector = self.embed_texts_openai([query])
         if not query_vector:
             print("Warning: Failed to embed query.")
             return []
-        return self.search(query_vector[0], top_k=top_k)
+        # Pass the filter_doc_ids down to the search method
+        return self.search(query_vector[0], top_k=top_k, filter_doc_ids=filter_doc_ids)
+
+    def get_indexed_document_ids(self) -> List[str]:
+        """
+        (Sync) Retrieves a list of unique document IDs present in the collection.
+        Uses scrolling to efficiently fetch payloads.
+        """
+        unique_doc_ids = set()
+        next_offset = None  # Initialize offset for scrolling
+
+        print(
+            f"Fetching unique document IDs from collection: {self.collection_name}..."
+        )
+        try:
+            while True:
+                # Scroll through points, fetching only the payload containing 'doc_id'
+                results, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    limit=250,  # Adjust batch size as needed
+                    offset=next_offset,
+                    with_payload=["doc_id"],  # Fetch only the doc_id field
+                    with_vectors=False,  # Don't need vectors
+                )
+
+                # Extract doc_ids from the current batch
+                for hit in results:
+                    if hit.payload and "doc_id" in hit.payload:
+                        unique_doc_ids.add(hit.payload["doc_id"])
+
+                # Stop if this is the last batch
+                if next_offset is None:
+                    break
+
+            print(f"Found {len(unique_doc_ids)} unique document IDs.")
+            return list(unique_doc_ids)
+
+        except Exception as e:
+            print(f"Error fetching document IDs from Qdrant (sync): {e}")
+            # Depending on requirements, you might want to return an empty list or re-raise
+            return []
+
+    def delete_documents_by_ids(self, doc_ids_to_delete: List[str]) -> None:
+        """
+        (Sync) Deletes all points (chunks) associated with the given document IDs.
+
+        Args:
+            doc_ids_to_delete (List[str]): A list of document IDs whose points should be deleted.
+        """
+        if not doc_ids_to_delete:
+            print("No document IDs provided for deletion.")
+            return
+
+        print(
+            f"Attempting to delete points for {len(doc_ids_to_delete)} document IDs..."
+        )
+
+        # Construct a filter to match any of the provided doc_ids
+        # We use a 'should' filter which acts like an OR condition.
+        # If we wanted to match ALL conditions, we'd use 'must'.
+        qdrant_filter = models.Filter(
+            should=[
+                models.FieldCondition(
+                    key="doc_id",  # The field in the payload to filter on
+                    match=models.MatchValue(value=doc_id),  # Match this specific value
+                )
+                for doc_id in doc_ids_to_delete
+            ]
+        )
+
+        try:
+            # Perform the delete operation
+            response = self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=qdrant_filter,
+                wait=True,  # Wait for the operation to complete
+            )
+            print(f"Qdrant delete operation status: {response.status}")
+            if response.status == models.UpdateStatus.COMPLETED:
+                print(
+                    f"Successfully deleted points for IDs: {', '.join(doc_ids_to_delete)}"
+                )
+            else:
+                print(
+                    f"Deletion might not be fully completed. Status: {response.status}"
+                )
+
+        except Exception as e:
+            print(f"Error deleting points from Qdrant (sync): {e}")
+            # Depending on requirements, you might want to raise the exception

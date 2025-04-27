@@ -3,11 +3,11 @@ from fastapi import FastAPI, Form, UploadFile
 from app.ingestion import process_document
 from app.llm import generate_answer
 from app.retriever import get_relevant_chunks
-from app.vectorstore import VectorStore
+from app.vectorstore import QdrantVectorStore
 
 app = FastAPI()
 
-vectorstore = VectorStore()
+vectorstore = QdrantVectorStore()
 
 
 @app.post("/upload")
@@ -19,6 +19,7 @@ async def upload_document(file: UploadFile):
 
 @app.post("/ask")
 async def ask_question(question: str = Form(...)):
-    context = get_relevant_chunks(question)
-    answer = generate_answer(context, question)
+    context_chunks = get_relevant_chunks(question, vectorstore)
+    context_str = "\n\n---\n\n".join([chunk["text"] for chunk in context_chunks])
+    answer = generate_answer(question, context_str)
     return {"answer": answer}

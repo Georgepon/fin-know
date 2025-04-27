@@ -1,10 +1,10 @@
-import hashlib
 import json
 import os
-from io import BytesIO
 
 import streamlit as st
-from ingestion import process_document
+
+# Use relative imports if running as a module (python -m streamlit run app/frontend.py)
+# Or keep absolute if running streamlit run app/frontend.py from parent dir
 from llm import generate_answer
 from retriever import get_relevant_chunks
 from vectorstore import QdrantVectorStore
@@ -34,145 +34,167 @@ def save_cache(cache_data: dict) -> None:
         print(f"Error saving cache to {CACHE_FILE}: {e}")
 
 
+# Callback function to clear the question input
+def clear_question_input():
+    if "question_input" in st.session_state:
+        st.session_state.question_input = ""
+
+
+# Helper function to get available documents for selection
+def get_available_docs(vectorstore: QdrantVectorStore, current_cache: dict) -> dict:
+    """Gets indexed doc IDs and maps them to known hashes from cache."""
+    doc_options = {}
+    try:
+        indexed_ids = vectorstore.get_indexed_document_ids()
+        id_to_hash = {v: k for k, v in current_cache.items()}
+        for doc_id in indexed_ids:
+            file_hash = id_to_hash.get(doc_id)
+            if file_hash:
+                doc_options[doc_id] = f"Doc (hash: {file_hash[:8]}...)"
+            else:
+                doc_options[doc_id] = f"Doc (ID: {doc_id[:8]}... - No cache match)"
+    except Exception as e:
+        st.warning(f"Could not retrieve indexed documents: {e}")
+    return doc_options
+
+
 # Load cache at the start
 processed_files_cache = load_cache()
 
 
-# --- Streamlit App ---
+# --- Streamlit App (Query Page) ---
+
+st.set_page_config(page_title="Query Documents", layout="wide")
+st.title("💬 Query Processed Documents")
+st.markdown("Select documents from the sidebar and ask questions below.")
 
 # Initialize session state keys if they don't exist
-if "doc_id" not in st.session_state:
-    st.session_state.doc_id = None
+# Ensure vectorstore is initialized here as well, as this might be the first page visited
 if "vectorstore" not in st.session_state:
-    st.session_state.vectorstore = None  # Will be re-initialized if needed
-if "current_file_hash" not in st.session_state:
-    st.session_state.current_file_hash = None
-if "file_processed" not in st.session_state:
-    st.session_state.file_processed = False
+    try:
+        st.session_state.vectorstore = QdrantVectorStore()
+        print("Initialized vectorstore on Query page.")
+    except Exception as e:
+        st.error(f"Failed to initialize vector store connection: {e}")
+        st.session_state.vectorstore = None  # Ensure it's None on failure
 
-st.set_page_config(page_title=f"Fin-Know: Financial Q&A", layout="wide")
-st.title(f"📄 Fin-Know — Ask questions about your financial PDFs")
+if "selected_doc_ids" not in st.session_state:
+    st.session_state.selected_doc_ids = []
+if "available_docs" not in st.session_state:
+    st.session_state.available_docs = {}
+    # Attempt to populate available_docs on first load if vectorstore initialized
+    if st.session_state.vectorstore:
+        st.session_state.available_docs = get_available_docs(
+            st.session_state.vectorstore, processed_files_cache
+        )
 
-# Upload PDF
-uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 
-if uploaded_file is not None:
-    # Read file content and calculate hash
-    file_bytes = uploaded_file.getvalue()  # Read bytes
-    current_file_hash = hashlib.sha256(file_bytes).hexdigest()
-    uploaded_file.seek(0)  # Reset pointer for potential reprocessing
+# --- Sidebar for Document Selection ---
+with st.sidebar:
+    st.header("Document Selection")
+    # Refresh available documents list
+    # This ensures it's up-to-date if a file was just uploaded on the other page
+    if st.session_state.vectorstore:
+        st.session_state.available_docs = get_available_docs(
+            st.session_state.vectorstore, processed_files_cache
+        )
 
-    # --- Cache Check & Processing Logic ---
-    if (
-        current_file_hash != st.session_state.current_file_hash
-        or not st.session_state.file_processed
-    ):
-        st.session_state.file_processed = False
-        st.session_state.vectorstore = None  # Reset vectorstore instance
-        st.session_state.doc_id = None
+    if st.session_state.vectorstore and st.session_state.available_docs:
+        options = list(st.session_state.available_docs.keys())
+        labels = [st.session_state.available_docs[id] for id in options]
 
-        if current_file_hash in processed_files_cache:
-            # --- Cache Hit ---
-            st.info(f"💾 Found cached version for {uploaded_file.name}.")
-            st.session_state.doc_id = processed_files_cache[current_file_hash]
+        # Preserve selection across page loads if possible
+        current_selection = [
+            id for id in st.session_state.selected_doc_ids if id in options
+        ]
+
+        selected_ids = st.multiselect(
+            label="Choose documents to search within:",
+            options=options,
+            format_func=lambda id: st.session_state.available_docs.get(id, id),
+            default=current_selection,
+            key="doc_selector",
+            on_change=clear_question_input,
+        )
+        st.session_state.selected_doc_ids = selected_ids
+        st.caption(f"{len(selected_ids)} document(s) selected.")
+    elif st.session_state.vectorstore:
+        st.info(
+            "No processed documents found. Please upload documents via the 'Upload Documents' page."
+        )
+    else:
+        st.warning("Vector store connection not available.")
+
+# --- Main Area: Question Answering ---
+
+st.divider()
+
+if not st.session_state.vectorstore:
+    st.error(
+        "Cannot connect to the vector database. Please check configuration and ensure Qdrant is running."
+    )
+elif not st.session_state.available_docs:
+    st.info(
+        "No documents available to query. Please use the 'Upload Documents' page to process files first."
+    )
+else:
+    st.header(f"Ask questions about selected documents")
+    if st.session_state.selected_doc_ids:
+        selected_labels = [
+            st.session_state.available_docs.get(id, id[:8])
+            for id in st.session_state.selected_doc_ids
+        ]
+        st.caption(f"Searching within: {', '.join(selected_labels)}")
+    else:
+        st.caption("No documents selected in the sidebar to search within.")
+
+    question = st.text_input(
+        "What do you want to know?",
+        placeholder="e.g. What was the total revenue?",
+        key="question_input",
+        disabled=not st.session_state.selected_doc_ids,
+    )
+
+    if question and st.session_state.selected_doc_ids:
+        with st.spinner("🤔 Thinking..."):
             try:
-                # Initialize vectorstore for querying
-                st.session_state.vectorstore = QdrantVectorStore()
-            except Exception as e:
-                st.error(f"Error initializing vector store for cached file: {e}")
-                st.stop()
-
-            st.session_state.current_file_hash = current_file_hash
-            st.session_state.file_processed = True
-
-        else:
-            # --- Cache Miss ---
-            # Create a placeholder for the progress bar
-            progress_bar_placeholder = st.empty()
-
-            with st.spinner(f"Processing {uploaded_file.name} (synchronously)..."):
-                # Create the actual progress bar inside the placeholder
-                progress_bar = progress_bar_placeholder.progress(
-                    0, text="Starting embedding..."
+                vectorstore_instance = st.session_state.vectorstore
+                results = get_relevant_chunks(
+                    question,
+                    vectorstore_instance,
+                    filter_doc_ids=st.session_state.selected_doc_ids,
                 )
-                try:
-                    doc_data = process_document(uploaded_file)
-                    chunks = doc_data["chunks"]
-                    st.session_state.doc_id = doc_data["doc_id"]
+                if results:
+                    context_str = "\n\n---\n\n".join(
+                        [chunk["text"] for chunk in results]
+                    )
+                    answer = generate_answer(question, context_str)
 
-                    # Initialize and use vectorstore synchronously
-                    st.session_state.vectorstore = QdrantVectorStore()
-                    # Call synchronous method, passing the progress bar
-                    st.session_state.vectorstore.embed_and_store_chunks(
-                        chunks, progress_bar=progress_bar
+                    st.markdown("### 🧠 Answer")
+                    with st.chat_message("ai"):
+                        st.write(answer)
+
+                    with st.expander("📄 Show retrieved context chunks"):
+                        for i, chunk in enumerate(results):
+                            doc_label = st.session_state.available_docs.get(
+                                chunk.get("doc_id"), chunk.get("doc_id", "N/A")[:8]
+                            )
+                            st.info(f"**Chunk {i+1}** (Source: `{doc_label}`)")
+                            st.text_area(
+                                f"chunk_{i}",
+                                chunk["text"],
+                                height=150,
+                                disabled=True,
+                                label_visibility="collapsed",
+                            )
+                else:
+                    st.warning(
+                        "Could not retrieve relevant context from the selected documents for this question."
                     )
 
-                    # Update and save cache
-                    processed_files_cache[current_file_hash] = st.session_state.doc_id
-                    save_cache(processed_files_cache)
-                    # Remove spinner and progress bar on success (optional, or keep bar at 100%)
-                    # progress_bar_placeholder.empty()
-                    st.success(
-                        f"✅ Processed and stored {uploaded_file.name} (synchronously)."
-                    )
-                    st.session_state.current_file_hash = current_file_hash
-                    st.session_state.file_processed = True
-
-                except Exception as e:
-                    # Remove progress bar on error
-                    progress_bar_placeholder.empty()
-                    st.error(f"Error processing document synchronously: {e}")
-                    st.session_state.file_processed = False
-                    st.stop()
-                # finally:
-                # Ensure progress bar is removed or set to final state regardless of success/error
-                # progress_bar_placeholder.empty()
-
-    # --- Question Answering Section (only if a doc is loaded/cached) ---
-    if (
-        st.session_state.doc_id
-        and st.session_state.vectorstore
-        and st.session_state.file_processed
-    ):
-        st.markdown(
-            f"**Ready to answer questions about: {uploaded_file.name}** (Doc ID: `{st.session_state.doc_id}`)"
+            except Exception as e:
+                st.error(f"Error during question answering: {e}")
+    elif question and not st.session_state.selected_doc_ids:
+        st.warning(
+            "Please select at least one document in the sidebar to search within."
         )
-
-        question = st.text_input(
-            "What do you want to know?",
-            placeholder="e.g. What was the net income in 2024?",
-        )
-
-        if question:
-            with st.spinner("Thinking..."):
-                try:
-                    vectorstore_instance = st.session_state.vectorstore
-                    if vectorstore_instance:
-                        # Call synchronous retrieval function
-                        results = get_relevant_chunks(question, vectorstore_instance)
-
-                        # LLM call remains sync
-                        context_str = "\n\n---\n\n".join(
-                            [chunk["text"] for chunk in results]
-                        )
-                        answer = generate_answer(question, context_str)
-
-                        st.markdown("### 🧠 Answer")
-                        st.success(answer)
-
-                        with st.expander("📄 Show retrieved context chunks"):
-                            for i, chunk in enumerate(results):
-                                st.markdown(
-                                    f"**Chunk {i+1}** (Source Doc: `{chunk.get('doc_id', 'N/A')}`)"
-                                )
-                                st.code(chunk["text"][:1500], language="markdown")
-                    else:
-                        st.error("Vectorstore not available for question answering.")
-                except Exception as e:
-                    st.error(f"Error during question answering: {e}")
-    elif uploaded_file:
-        # Handle cases where processing might have failed before reaching Q&A
-        if not st.session_state.file_processed:
-            st.warning(
-                "File processing did not complete successfully. Cannot answer questions."
-            )
