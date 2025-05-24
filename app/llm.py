@@ -44,3 +44,36 @@ def generate_answer(
         max_tokens=max_tokens,
     )
     return response.choices[0].message.content
+
+
+def generate_chat_response(
+    message: str,
+    model: str = "llama3-8b-8192",
+    max_tokens: int = 512,
+) -> str:
+    """
+    Generate a direct chat response without any document context.
+
+    Args:
+        message (str): The user's message.
+        model (str): Groq model to use.
+        max_tokens (int): Max tokens to generate.
+
+    Returns:
+        str: The generated response.
+    """
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a helpful and friendly AI assistant. Provide direct and conversational responses to the user's messages.",
+            },
+            {
+                "role": "user",
+                "content": message,
+            },
+        ],
+        max_tokens=max_tokens,
+    )
+    return response.choices[0].message.content

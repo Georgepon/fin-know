@@ -21,13 +21,18 @@ def process_document(file: Union[str, Path, object]) -> dict:
     doc_id = str(uuid4())
     file_content_bytes = None
     file_hash = None
+    original_filename = "Unknown Document"  # Default
 
     # Determine input type and read bytes for hashing
     if isinstance(file, (str, Path)):
         file_path = Path(file)
+        original_filename = file_path.name  # Extract filename
         file_content_bytes = file_path.read_bytes()
         pdf = pymupdf.open(str(file_path))  # Load from path
     else:  # Handle UploadedFile (Streamlit/FastAPI)
+        if hasattr(file, "name"):  # Get filename from UploadedFile
+            original_filename = file.name
+
         # Check for Streamlit UploadedFile
         if hasattr(file, "getvalue") and callable(file.getvalue):
             file_content_bytes = file.getvalue()
@@ -67,7 +72,12 @@ def process_document(file: Union[str, Path, object]) -> dict:
     chunked_docs = []
     for i, chunk in enumerate(chunks):
         chunked_docs.append(
-            {"chunk_id": f"{doc_id}_{i}", "text": chunk, "doc_id": doc_id}
+            {
+                "chunk_id": f"{doc_id}_{i}",
+                "text": chunk,
+                "doc_id": doc_id,
+                "filename": original_filename,  # Add filename to metadata
+            }
         )
 
     return {

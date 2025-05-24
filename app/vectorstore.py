@@ -206,7 +206,6 @@ class QdrantVectorStore:
         )
         print("-" * 30)
 
-        # Ensure progress bar reaches 100% if it exists and no error occurred mid-way
         if progress_bar and total_processed_chunks == num_chunks:
             progress_bar.progress(1.0, text="Embedding complete!")
 
@@ -250,17 +249,15 @@ class QdrantVectorStore:
                     if hit.payload and "doc_id" in hit.payload:
                         unique_doc_ids.add(hit.payload["doc_id"])
 
-                # Stop if this is the last batch
-                if next_offset is None:
+                # If no more results, break the loop
+                if not next_offset:
                     break
 
-            print(f"Found {len(unique_doc_ids)} unique document IDs.")
             return list(unique_doc_ids)
 
         except Exception as e:
-            print(f"Error fetching document IDs from Qdrant (sync): {e}")
-            # Depending on requirements, you might want to return an empty list or re-raise
-            return []
+            print(f"Error fetching document IDs: {e}")
+            raise
 
     def delete_documents_by_ids(self, doc_ids_to_delete: List[str]) -> None:
         """
