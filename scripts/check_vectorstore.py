@@ -7,7 +7,11 @@ CACHE_FILE = "processed_cache.json"
 
 
 def load_cache() -> dict:
-    """Loads the processed file hash cache from a JSON file."""
+    """Load the processed file hash cache from ``CACHE_FILE``.
+
+    Returns:
+        dict: Mapping of document IDs to file hashes.
+    """
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, "r") as f:
