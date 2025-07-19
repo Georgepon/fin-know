@@ -5,9 +5,9 @@ from qdrant_client import QdrantClient, models
 
 
 def reset_qdrant_collection():
-    """
-    Connects to Qdrant and recreates the specified collection,
-    effectively deleting all its data and resetting it.
+    """Recreate the configured Qdrant collection.
+
+    This deletes all existing data and starts the collection fresh.
     """
     load_dotenv()
 

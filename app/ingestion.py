@@ -8,15 +8,13 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 
 def process_document(file: Union[str, Path, object]) -> dict:
-    """
-    Process a PDF document from file path or uploaded file-like object.
-    Calculates a hash of the file content.
+    """Process a PDF document and return chunk metadata.
 
     Args:
-        file (str | Path | UploadedFile): Path to PDF or file-like object.
+        file: Path to the PDF or an uploaded file-like object.
 
     Returns:
-        dict: Contains metadata, list of chunk dicts, and file_hash.
+        dict: Metadata including the chunks and a hash of the file contents.
     """
     doc_id = str(uuid4())
     file_content_bytes = None

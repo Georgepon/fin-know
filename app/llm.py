@@ -17,14 +17,13 @@ def generate_answer(
     model: str = "llama3-8b-8192",
     max_tokens: int = 512,
 ) -> str:
-    """
-    Generate an answer using Groq-hosted LLM based on a question and retrieved document context.
+    """Generate an answer using the Groq-hosted LLM.
 
     Args:
-        question (str): The user question.
-        context (str): Concatenated relevant chunks.
-        model (str): Groq model to use.
-        max_tokens (int): Max tokens to generate.
+        question: The user question.
+        context: Concatenated relevant chunks.
+        model: Groq model to use.
+        max_tokens: Maximum tokens to generate.
 
     Returns:
         str: The generated answer.
@@ -51,13 +50,12 @@ def generate_chat_response(
     model: str = "llama3-8b-8192",
     max_tokens: int = 512,
 ) -> str:
-    """
-    Generate a direct chat response without any document context.
+    """Generate a chat response without document context.
 
     Args:
-        message (str): The user's message.
-        model (str): Groq model to use.
-        max_tokens (int): Max tokens to generate.
+        message: The user's message.
+        model: Groq model to use.
+        max_tokens: Maximum tokens to generate.
 
     Returns:
         str: The generated response.

@@ -12,15 +12,10 @@ load_dotenv()
 
 
 class QdrantVectorStore:
-    """
-    Handles vector storage and retrieval using Qdrant Cloud (Synchronous).
-    """
+    """Synchronous wrapper around Qdrant for vector storage and retrieval."""
 
     def __init__(self) -> None:
-        """
-        Initializes the synchronous Qdrant and OpenAI clients.
-        Initializes the collection directly.
-        """
+        """Initialize the Qdrant and OpenAI clients and create the collection."""
         self.qdrant_url = os.getenv("QDRANT_URL")
         self.qdrant_api_key = os.getenv("QDRANT_API_KEY")
         self.collection_name = os.getenv("QDRANT_COLLECTION")
@@ -43,9 +38,7 @@ class QdrantVectorStore:
         self._init_collection()
 
     def _init_collection(self) -> None:
-        """
-        (Sync) Checks if the specified collection exists in Qdrant. If not, creates one.
-        """
+        """Create the collection in Qdrant if it does not already exist."""
         print("Initializing Qdrant collection (sync)...")
         try:
             collections_response = self.client.get_collections()
@@ -69,9 +62,7 @@ class QdrantVectorStore:
             raise
 
     def embed_texts_openai(self, texts: List[str]) -> List[List[float]]:
-        """
-        (Sync) Uses OpenAI's API to generate embeddings.
-        """
+        """Use OpenAI to generate embeddings for a list of texts."""
         if not texts:
             return []
         try:
@@ -86,8 +77,9 @@ class QdrantVectorStore:
     def upsert(
         self, embeddings: List[List[float]], metadata_list: List[Dict[str, Any]]
     ) -> None:
-        """
-        (Sync) Stores vectors and metadata. Generates UUID for each point ID.
+        """Store vectors and metadata in Qdrant.
+
+        Each point ID is generated automatically.
         """
         if not embeddings:
             print("No embeddings provided to upsert.")
@@ -115,9 +107,15 @@ class QdrantVectorStore:
         top_k: int = 5,
         filter_doc_ids: List[str] | None = None,
     ) -> List[Dict[str, Any]]:
-        """
-        (Sync) Searches the Qdrant collection.
-        Optionally filters by a list of document IDs.
+        """Search the collection for vectors similar to ``query_vector``.
+
+        Args:
+            query_vector: Vector representation of the query.
+            top_k: Number of results to return.
+            filter_doc_ids: Optional list of document IDs to filter by.
+
+        Returns:
+            List[Dict[str, Any]]: Payloads from matching points.
         """
         search_filter = None
         if filter_doc_ids:
@@ -147,9 +145,12 @@ class QdrantVectorStore:
     def embed_and_store_chunks(
         self, chunks: List[Dict[str, str]], batch_size: int = 128, progress_bar=None
     ) -> None:
-        """
-        (Sync) Embeds and stores chunks sequentially in batches.
-        Updates an optional Streamlit progress bar if provided.
+        """Embed and store text chunks in batches.
+
+        Args:
+            chunks: List of chunk metadata dictionaries.
+            batch_size: Number of chunks to embed per batch.
+            progress_bar: Optional Streamlit progress bar to update.
         """
         if not chunks:
             print("No chunks provided to embed and store.")
@@ -212,8 +213,15 @@ class QdrantVectorStore:
     def embed_and_search(
         self, query: str, top_k: int = 10, filter_doc_ids: List[str] | None = None
     ) -> List[Dict[str, Any]]:
-        """
-        (Sync) Embeds a query and searches, optionally filtering by document IDs.
+        """Embed a query and search the collection.
+
+        Args:
+            query: The query text.
+            top_k: Number of results to return.
+            filter_doc_ids: Optional list of document IDs to filter by.
+
+        Returns:
+            List[Dict[str, Any]]: Payloads from matching points.
         """
         query_vector = self.embed_texts_openai([query])
         if not query_vector:
@@ -223,10 +231,7 @@ class QdrantVectorStore:
         return self.search(query_vector[0], top_k=top_k, filter_doc_ids=filter_doc_ids)
 
     def get_indexed_document_ids(self) -> List[str]:
-        """
-        (Sync) Retrieves a list of unique document IDs present in the collection.
-        Uses scrolling to efficiently fetch payloads.
-        """
+        """Return all unique document IDs stored in the collection."""
         unique_doc_ids = set()
         next_offset = None  # Initialize offset for scrolling
 
@@ -260,10 +265,7 @@ class QdrantVectorStore:
             raise
 
     def get_indexed_documents(self) -> List[tuple[str, str]]:
-        """
-        Returns a list of tuples containing document IDs and their corresponding
-        filenames stored in the collection.
-        """
+        """Return a list of document IDs and filenames stored in the collection."""
         docs: dict[str, str] = {}
         next_offset = None
 
@@ -294,11 +296,10 @@ class QdrantVectorStore:
             raise
 
     def delete_documents_by_ids(self, doc_ids_to_delete: List[str]) -> None:
-        """
-        (Sync) Deletes all points (chunks) associated with the given document IDs.
+        """Delete all points associated with the given document IDs.
 
         Args:
-            doc_ids_to_delete (List[str]): A list of document IDs whose points should be deleted.
+            doc_ids_to_delete: Document IDs whose chunks should be removed.
         """
         if not doc_ids_to_delete:
             print("No document IDs provided for deletion.")
