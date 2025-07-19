@@ -259,6 +259,40 @@ class QdrantVectorStore:
             print(f"Error fetching document IDs: {e}")
             raise
 
+    def get_indexed_documents(self) -> List[tuple[str, str]]:
+        """
+        Returns a list of tuples containing document IDs and their corresponding
+        filenames stored in the collection.
+        """
+        docs: dict[str, str] = {}
+        next_offset = None
+
+        try:
+            while True:
+                results, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    limit=250,
+                    offset=next_offset,
+                    with_payload=["doc_id", "filename"],
+                    with_vectors=False,
+                )
+
+                for hit in results:
+                    payload = hit.payload or {}
+                    doc_id = payload.get("doc_id")
+                    filename = payload.get("filename", "Unknown")
+                    if doc_id and doc_id not in docs:
+                        docs[doc_id] = filename
+
+                if not next_offset:
+                    break
+
+            return [(doc_id, filename) for doc_id, filename in docs.items()]
+
+        except Exception as e:
+            print(f"Error fetching indexed documents: {e}")
+            raise
+
     def delete_documents_by_ids(self, doc_ids_to_delete: List[str]) -> None:
         """
         (Sync) Deletes all points (chunks) associated with the given document IDs.
