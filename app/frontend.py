@@ -9,7 +9,7 @@ from vectorstore import QdrantVectorStore
 
 # Set the overall app configuration
 st.set_page_config(
-    page_title="FinKnow Assist", layout="wide", initial_sidebar_state="expanded"
+    page_title="Fin-Know Assistant", layout="wide", initial_sidebar_state="expanded"
 )
 
 # Define the pages for st.navigation
