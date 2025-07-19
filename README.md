@@ -1,4 +1,4 @@
-# FinKnow
+# Fin-Know
 
 ## Summary and Purpose
 FinKnow is a small reference application that demonstrates how to build a Retrieval-Augmented Generation (RAG) workflow for financial documents. Users can upload PDF statements, embed their contents and query them using a language model. The project also exposes basic API endpoints for programmatic access.
@@ -7,6 +7,8 @@ FinKnow is a small reference application that demonstrates how to build a Retrie
 - **RAG-Powered Q&A** – ask questions about uploaded PDFs with answers generated from retrieved document chunks.
 - **General Q&A** – chat directly with the language model without document context.
 - **Add Documents** – upload and process PDF files. Extracted chunks are embedded and stored in Qdrant. A local cache tracks processed files.
+
+**For an example of how the pages look like without needing to launch the app** I have attached some screenshots in the "example_snips" directory,
 
 Additional features include chunking of documents with LangChain, OpenAI embeddings, and a simple FastAPI backend.
 
