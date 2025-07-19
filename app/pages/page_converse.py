@@ -26,7 +26,21 @@ def show_converse_page():
             "Cannot connect to the vector database. Please check configuration and ensure Qdrant is running."
         )
     else:
-        st.header(f"Ask questions about your documents")
+        # Show which documents are indexed
+        docs = []
+        try:
+            docs = st.session_state.vectorstore.get_indexed_documents()
+        except Exception as e:
+            st.warning(f"Unable to fetch document list: {e}")
+
+        with st.expander("📚 Documents currently indexed"):
+            if docs:
+                for doc_id, filename in docs:
+                    st.markdown(f"- `{filename}` (`{doc_id[:8]}...`)")
+            else:
+                st.caption("No documents found in the vector store.")
+
+        st.header("Ask questions about your documents")
 
         question = st.text_input(
             "What do you want to know?",
